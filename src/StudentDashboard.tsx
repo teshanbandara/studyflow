@@ -1161,6 +1161,18 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
 
   useEffect(() => { if (!running) setSecondsLeft(mode === "focus" ? pomodoroLen * 60 : breakLen * 60); }, [pomodoroLen, breakLen, mode]);
 
+  // If the length of the currently-running phase is edited mid-session,
+  // re-anchor the end time immediately so the countdown reflects the change
+  // right away instead of waiting for the phase to naturally end.
+  useEffect(() => {
+    if (running) {
+      const newTotal = (mode === "focus" ? pomodoroLen : breakLen) * 60;
+      endTimeRef.current = Date.now() + newTotal * 1000;
+      setSecondsLeft(newTotal);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pomodoroLen, breakLen]);
+
   // Timestamp-based tick: recompute remaining time from real elapsed time each
   // tick instead of decrementing a counter. This avoids drift/slowdowns caused
   // by browsers (especially mobile) throttling setInterval when the tab or
@@ -1237,8 +1249,26 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
     <div className="grid lg:grid-cols-3 gap-6">
       <GlassCard className="p-8 lg:col-span-2 flex flex-col items-center justify-center gap-6">
         <div className="flex gap-2 mb-1">
-          <span className={`text-xs font-medium px-3 py-1 rounded-full ${mode === "focus" ? `${a.solid} text-white` : "bg-slate-100 dark:bg-white/10 text-slate-500"}`}>Focus</span>
-          <span className={`text-xs font-medium px-3 py-1 rounded-full ${mode === "break" ? "bg-emerald-500 text-white" : "bg-slate-100 dark:bg-white/10 text-slate-500"}`}>Break</span>
+          <button
+            onClick={() => {
+              setRunning(false);
+              setMode("focus");
+              setSecondsLeft(pomodoroLen * 60);
+            }}
+            className={`text-xs font-medium px-3 py-1 rounded-full transition ${mode === "focus" ? `${a.solid} text-white` : "bg-slate-100 dark:bg-white/10 text-slate-500 hover:bg-slate-200 dark:hover:bg-white/20"}`}
+          >
+            Focus
+          </button>
+          <button
+            onClick={() => {
+              setRunning(false);
+              setMode("break");
+              setSecondsLeft(breakLen * 60);
+            }}
+            className={`text-xs font-medium px-3 py-1 rounded-full transition ${mode === "break" ? "bg-emerald-500 text-white" : "bg-slate-100 dark:bg-white/10 text-slate-500 hover:bg-slate-200 dark:hover:bg-white/20"}`}
+          >
+            Break
+          </button>
         </div>
         <div className="relative h-72 w-72">
           <svg viewBox="0 0 200 200" className="h-72 w-72 -rotate-90">
@@ -1276,7 +1306,6 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPomodoroLen(Math.max(5, pomodoroLen - 5))}
-                disabled={running}
                 className="h-6 w-6 flex items-center justify-center rounded-full border border-slate-200 dark:border-white/10 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-white/5 transition"
               >
                 −
@@ -1287,7 +1316,6 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
                 max={180}
                 step={5}
                 value={pomodoroLen}
-                disabled={running}
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   if (!Number.isNaN(v)) setPomodoroLen(Math.min(180, Math.max(5, v)));
@@ -1297,7 +1325,6 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
               <span className="text-sm font-medium">min</span>
               <button
                 onClick={() => setPomodoroLen(Math.min(180, pomodoroLen + 5))}
-                disabled={running}
                 className="h-6 w-6 flex items-center justify-center rounded-full border border-slate-200 dark:border-white/10 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-white/5 transition"
               >
                 +
@@ -1309,15 +1336,25 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setBreakLen(Math.max(1, breakLen - 1))}
-                disabled={running}
                 className="h-6 w-6 flex items-center justify-center rounded-full border border-slate-200 dark:border-white/10 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-white/5 transition"
               >
                 −
               </button>
-              <span className="text-sm font-medium w-14 text-center">{breakLen} min</span>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                step={1}
+                value={breakLen}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (!Number.isNaN(v)) setBreakLen(Math.min(60, Math.max(1, v)));
+                }}
+                className="w-14 text-center text-sm font-medium px-1 py-0.5 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 outline-none disabled:opacity-50"
+              />
+              <span className="text-sm font-medium">min</span>
               <button
                 onClick={() => setBreakLen(Math.min(60, breakLen + 1))}
-                disabled={running}
                 className="h-6 w-6 flex items-center justify-center rounded-full border border-slate-200 dark:border-white/10 text-xs disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-white/5 transition"
               >
                 +
@@ -1957,7 +1994,7 @@ const SettingsPanel: React.FC<{
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Break length (min)</label>
-            <input type="number" min={1} max={30} value={breakLen} onChange={(e) => setBreakLen(Number(e.target.value))} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-sm outline-none" />
+            <input type="number" min={1} max={60} value={breakLen} onChange={(e) => setBreakLen(Number(e.target.value))} className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-sm outline-none" />
           </div>
         </div>
       </GlassCard>
