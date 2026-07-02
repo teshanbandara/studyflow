@@ -143,12 +143,12 @@ function dayOfYear(d: Date) {
   return Math.floor(diff / 86400000);
 }
 
-const ACCENTS: Record<string, { name: string; solid: string; text: string; bg: string; ring: string; from: string; to: string; light: string }> = {
-  violet: { name: "Violet", solid: "bg-violet-600", text: "text-violet-600", bg: "bg-violet-500", ring: "ring-violet-500", from: "from-violet-500", to: "to-indigo-500", light: "bg-violet-50" },
-  blue: { name: "Blue", solid: "bg-blue-600", text: "text-blue-600", bg: "bg-blue-500", ring: "ring-blue-500", from: "from-blue-500", to: "to-cyan-500", light: "bg-blue-50" },
-  emerald: { name: "Emerald", solid: "bg-emerald-600", text: "text-emerald-600", bg: "bg-emerald-500", ring: "ring-emerald-500", from: "from-emerald-500", to: "to-teal-500", light: "bg-emerald-50" },
-  rose: { name: "Rose", solid: "bg-rose-600", text: "text-rose-600", bg: "bg-rose-500", ring: "ring-rose-500", from: "from-rose-500", to: "to-pink-500", light: "bg-rose-50" },
-  amber: { name: "Amber", solid: "bg-amber-600", text: "text-amber-600", bg: "bg-amber-500", ring: "ring-amber-500", from: "from-amber-500", to: "to-orange-500", light: "bg-amber-50" },
+const ACCENTS: Record<string, { name: string; solid: string; text: string; bg: string; ring: string; from: string; to: string; light: string; stroke: string }> = {
+  violet: { name: "Violet", solid: "bg-violet-600", text: "text-violet-600", bg: "bg-violet-500", ring: "ring-violet-500", from: "from-violet-500", to: "to-indigo-500", light: "bg-violet-50", stroke: "stroke-violet-600" },
+  blue: { name: "Blue", solid: "bg-blue-600", text: "text-blue-600", bg: "bg-blue-500", ring: "ring-blue-500", from: "from-blue-500", to: "to-cyan-500", light: "bg-blue-50", stroke: "stroke-blue-600" },
+  emerald: { name: "Emerald", solid: "bg-emerald-600", text: "text-emerald-600", bg: "bg-emerald-500", ring: "ring-emerald-500", from: "from-emerald-500", to: "to-teal-500", light: "bg-emerald-50", stroke: "stroke-emerald-600" },
+  rose: { name: "Rose", solid: "bg-rose-600", text: "text-rose-600", bg: "bg-rose-500", ring: "ring-rose-500", from: "from-rose-500", to: "to-pink-500", light: "bg-rose-50", stroke: "stroke-rose-600" },
+  amber: { name: "Amber", solid: "bg-amber-600", text: "text-amber-600", bg: "bg-amber-500", ring: "ring-amber-500", from: "from-amber-500", to: "to-orange-500", light: "bg-amber-50", stroke: "stroke-amber-600" },
 };
 
 const SUBJECT_COLORS: Record<string, { dot: string; text: string; bg: string; border: string }> = {
@@ -706,7 +706,7 @@ const RadialScore: React.FC<{ score: number }> = ({ score }) => {
         <circle cx="55" cy="55" r={r} fill="none" strokeWidth="10" className="stroke-slate-100 dark:stroke-white/10" />
         <motion.circle
           cx="55" cy="55" r={r} fill="none" strokeWidth="10" strokeLinecap="round"
-          className={a.text.replace("text-", "stroke-")}
+          className={a.stroke}
           strokeDasharray={c}
           initial={{ strokeDashoffset: c }}
           animate={{ strokeDashoffset: c - (score / 100) * c }}
@@ -1275,7 +1275,7 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
             <circle cx="100" cy="100" r={r} fill="none" strokeWidth="12" className="stroke-slate-100 dark:stroke-white/10" />
             <motion.circle
               cx="100" cy="100" r={r} fill="none" strokeWidth="12" strokeLinecap="round"
-              className={mode === "focus" ? a.text.replace("text-", "stroke-") : "stroke-emerald-500"}
+              className={mode === "focus" ? a.stroke : "stroke-emerald-500"}
               strokeDasharray={c} animate={{ strokeDashoffset: c - pct * c }} transition={{ duration: 0.5, ease: "linear" }}
             />
           </svg>
