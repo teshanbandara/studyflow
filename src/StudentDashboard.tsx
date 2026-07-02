@@ -1151,33 +1151,74 @@ const FocusPanel: React.FC<{ pomodoroLen: number; breakLen: number; setPomodoroL
   const [running, setRunning] = useState(false);
   const [sessions, setSessions] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const endTimeRef = useRef<number | null>(null); // epoch ms when current phase should end
+  const modeRef = useRef(mode);
+  const pomodoroLenRef = useRef(pomodoroLen);
+  const breakLenRef = useRef(breakLen);
+  modeRef.current = mode;
+  pomodoroLenRef.current = pomodoroLen;
+  breakLenRef.current = breakLen;
 
   useEffect(() => { if (!running) setSecondsLeft(mode === "focus" ? pomodoroLen * 60 : breakLen * 60); }, [pomodoroLen, breakLen, mode]);
 
+  // Timestamp-based tick: recompute remaining time from real elapsed time each
+  // tick instead of decrementing a counter. This avoids drift/slowdowns caused
+  // by browsers (especially mobile) throttling setInterval when the tab or
+  // screen isn't in the foreground.
+  const tick = useCallback(() => {
+    if (endTimeRef.current == null) return;
+    const remainingMs = endTimeRef.current - Date.now();
+    const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
+
+    if (remaining <= 0) {
+      if (modeRef.current === "focus") {
+        onSessionComplete(pomodoroLenRef.current);
+        setSessions((n) => n + 1);
+        if (notifOn && "Notification" in window && Notification.permission === "granted") {
+          new Notification("Focus session complete!", { body: "Time for a well-earned break." });
+        }
+        setMode("break");
+        endTimeRef.current = Date.now() + breakLenRef.current * 60 * 1000;
+        setSecondsLeft(breakLenRef.current * 60);
+      } else {
+        setMode("focus");
+        endTimeRef.current = Date.now() + pomodoroLenRef.current * 60 * 1000;
+        setSecondsLeft(pomodoroLenRef.current * 60);
+      }
+    } else {
+      setSecondsLeft(remaining);
+    }
+  }, [onSessionComplete, notifOn]);
+
   useEffect(() => {
     if (running) {
-      intervalRef.current = setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s <= 1) {
-            if (mode === "focus") {
-              onSessionComplete(pomodoroLen);
-              setSessions((n) => n + 1);
-              if (notifOn && "Notification" in window && Notification.permission === "granted") {
-                new Notification("Focus session complete!", { body: "Time for a well-earned break." });
-              }
-              setMode("break");
-              return breakLen * 60;
-            } else {
-              setMode("focus");
-              return pomodoroLen * 60;
-            }
-          }
-          return s - 1;
-        });
-      }, 1000);
+      if (endTimeRef.current == null) {
+        endTimeRef.current = Date.now() + secondsLeft * 1000;
+      }
+      // Fire an immediate tick so the UI feels responsive the instant Start is
+      // pressed, then continue on a 1s cadence. A short interval (250ms) is
+      // used instead of exactly 1000ms so any single throttled/delayed tick
+      // still self-corrects quickly using real elapsed time.
+      tick();
+      intervalRef.current = setInterval(tick, 250);
+    } else {
+      endTimeRef.current = null;
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [running, mode, pomodoroLen, breakLen, onSessionComplete, notifOn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, tick]);
+
+  // Re-sync countdown if the page was backgrounded/suspended (common on
+  // mobile) and resumes — recompute from the stored end time immediately.
+  useEffect(() => {
+    const onVisible = () => { if (running) tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [running, tick]);
 
   useEffect(() => {
     if (notifOn && "Notification" in window && Notification.permission === "default") {
