@@ -27,7 +27,7 @@ export default function Landing({ onAuthed }: LandingProps) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.error || "Something went wrong.");
+        setError(data?.error ? `${data.error}${data.detail ? ` (${data.detail})` : ""}` : "Something went wrong.");
         return;
       }
       onAuthed(data.username);
