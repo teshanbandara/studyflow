@@ -37,12 +37,22 @@ function isoWeekKey(d: Date = new Date()): string {
   return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
+// Vercel names the token env var differently depending on how the store was
+// created/connected (e.g. a custom store name can produce something like
+// MYSTORE_READ_WRITE_TOKEN instead of the default BLOB_READ_WRITE_TOKEN).
+// Search for any matching var instead of assuming the exact default name.
+function findBlobToken(): string | undefined {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  const key = Object.keys(process.env).find((k) => k.endsWith("_READ_WRITE_TOKEN"));
+  return key ? process.env[key] : undefined;
+}
+
 async function readEntries(pathname: string): Promise<Entry[]> {
+  const token = findBlobToken();
   try {
-    const meta = await head(pathname);
+    const meta = await head(pathname, token ? { token } : undefined);
     // Private Blob stores don't allow unauthenticated reads of the URL, so
     // we pass the token explicitly here rather than a plain fetch().
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
     const res = await fetch(meta.url, {
       cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -112,6 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         contentType: "application/json",
         addRandomSuffix: false,
         allowOverwrite: true,
+        ...(findBlobToken() ? { token: findBlobToken() } : {}),
       });
 
       const rank = entries.findIndex((e) => e.name === name) + 1;

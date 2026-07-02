@@ -25,12 +25,21 @@ interface UserRecord {
 }
 type UsersFile = Record<string, UserRecord>;
 
+// Vercel names the token env var differently depending on how the store was
+// created/connected. Search for any matching var instead of assuming the
+// exact default name BLOB_READ_WRITE_TOKEN.
+function findBlobToken(): string | undefined {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return process.env.BLOB_READ_WRITE_TOKEN;
+  const key = Object.keys(process.env).find((k) => k.endsWith("_READ_WRITE_TOKEN"));
+  return key ? process.env[key] : undefined;
+}
+
 async function readUsers(): Promise<UsersFile> {
+  const token = findBlobToken();
   try {
-    const meta = await head(USERS_PATH);
+    const meta = await head(USERS_PATH, token ? { token } : undefined);
     // Private Blob stores don't allow unauthenticated reads of the URL, so
     // we pass the token explicitly here rather than a plain fetch().
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
     const res = await fetch(meta.url, {
       cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -44,11 +53,13 @@ async function readUsers(): Promise<UsersFile> {
 }
 
 async function writeUsers(users: UsersFile) {
+  const token = findBlobToken();
   await put(USERS_PATH, JSON.stringify(users), {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: true,
+    ...(token ? { token } : {}),
   });
 }
 
