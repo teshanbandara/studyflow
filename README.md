@@ -51,7 +51,7 @@ The Leaderboard tab is backed by a small serverless API (`api/leaderboard.ts`) t
 1. Deploy this project to Vercel first (see Deploy steps above).
 2. In your Vercel project dashboard, go to the **Storage** tab.
 3. Click **Create Database** → choose **Blob** → follow the prompts (this is on Vercel's free tier).
-4. Once created, click **Connect Project** and select this project. Vercel automatically adds the `BLOB_READ_WRITE_TOKEN` environment variable — no manual copy-pasting needed.
+4. Once created, click **Connect Project** and select this project. Vercel authenticates the connection automatically (via OIDC) — you generally don't need to manage a `BLOB_READ_WRITE_TOKEN` yourself. If Vercel shows a notice about revoking an old read-write token, that's expected: redeploy first so the deployment picks up the new store connection, then it's safe to revoke the token.
 5. Redeploy the project (Vercel usually prompts you to, or push a new commit) so the function picks up the new env var.
 
 ### 2. Test it

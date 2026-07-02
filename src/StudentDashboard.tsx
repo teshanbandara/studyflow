@@ -1985,7 +1985,6 @@ const ReviewPanel: React.FC<{
 interface LeaderboardEntry {
   name: string;
   hours: number;
-  updatedAt: string;
 }
 
 const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) => {
@@ -1994,6 +1993,8 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
   const [displayName, setDisplayName] = useLocalStorage("spd_leaderboard_name", "");
   const [nameInput, setNameInput] = useState(displayName);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [rank, setRank] = useState<number | null>(null);
+  const [total, setTotal] = useState(0);
   const [weekLabel, setWeekLabel] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -2003,17 +2004,20 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/leaderboard");
+      const url = displayName ? `/api/leaderboard?name=${encodeURIComponent(displayName)}` : "/api/leaderboard";
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to load leaderboard");
       const data = await res.json();
       setEntries(data.entries || []);
+      setRank(data.rank ?? null);
+      setTotal(data.total || 0);
       setWeekLabel(data.week || "");
     } catch (err) {
       setError("Couldn't reach the leaderboard. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [displayName]);
 
   useEffect(() => { fetchLeaderboard(); }, [fetchLeaderboard]);
 
@@ -2029,8 +2033,12 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
         body: JSON.stringify({ name: trimmed, hours: +weeklyHours.toFixed(2) }),
       });
       if (!res.ok) throw new Error("Failed to submit");
+      const data = await res.json();
       setDisplayName(trimmed);
-      await fetchLeaderboard();
+      setEntries(data.entries || []);
+      setRank(data.rank ?? null);
+      setTotal(data.total || 0);
+      setWeekLabel(data.week || "");
     } catch (err) {
       setError("Couldn't submit your score. Try again in a moment.");
     } finally {
@@ -2038,12 +2046,14 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
     }
   };
 
-  const myRank = entries.findIndex((e) => e.name === displayName) + 1;
+  // Only show the "your rank" callout separately when you're NOT already
+  // visible in the top-50 list below (i.e. ranked 51st or lower).
+  const rankedOutsideList = rank !== null && rank > entries.length;
 
   return (
     <div className="space-y-6">
       <GlassCard className="p-6">
-        <SectionTitle icon={Star} title="Weekly Leaderboard" subtitle={`Ranked by hours studied this week${weekLabel ? ` (${weekLabel})` : ""} — resets every Monday`} />
+        <SectionTitle icon={Star} title="Weekly Leaderboard" subtitle={`Top 50, ranked by hours studied this week${weekLabel ? ` (${weekLabel})` : ""} — resets every Monday`} />
         <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end mb-4">
           <div>
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Your display name</label>
@@ -2064,8 +2074,16 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
           </button>
         </div>
         {error && <p className="text-xs text-rose-500 mb-3">{error}</p>}
-        {myRank > 0 && (
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">You're currently ranked #{myRank} as "{displayName}" for this week.</p>
+
+        {rankedOutsideList && (
+          <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-white/5 mb-4">
+            <span className="h-10 w-10 flex items-center justify-center rounded-full text-sm font-bold bg-slate-200 dark:bg-white/10 text-slate-500 shrink-0">
+              #{rank}
+            </span>
+            <p className="text-sm">
+              You're ranked <span className="font-semibold">#{rank}</span> out of {total} students this week — just outside the top 50 shown below.
+            </p>
+          </div>
         )}
 
         {loading ? (
@@ -2096,7 +2114,7 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
   );
 };
 
-
+const SettingsPanel: React.FC<{
   dark: boolean; setDark: (v: boolean | ((p: boolean) => boolean)) => void;
   accent: string; setAccent: (v: string) => void;
   pomodoroLen: number; setPomodoroLen: (v: number) => void;
