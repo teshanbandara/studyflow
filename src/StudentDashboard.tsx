@@ -354,13 +354,14 @@ const NAV = [
 
 type NavId = typeof NAV[number]["id"];
 
-export default function App() {
+export default function App({ username, onLogout }: { username?: string; onLogout?: () => void }) {
   const [dark, setDark] = useLocalStorage("spd_dark", false);
   const [accent, setAccent] = useLocalStorage("spd_accent", "violet");
   const [pomodoroLen, setPomodoroLen] = useLocalStorage("spd_pomo_len", 25);
   const [breakLen, setBreakLen] = useLocalStorage("spd_break_len", 5);
   const [notifOn, setNotifOn] = useLocalStorage("spd_notif", true);
-  const [leaderboardName] = useLocalStorage("spd_leaderboard_name", "");
+  const [storedLeaderboardName] = useLocalStorage("spd_leaderboard_name", "");
+  const leaderboardName = username || storedLeaderboardName;
 
   const [subjects, setSubjects] = useLocalStorage<Subject[]>("spd_subjects", DEFAULT_SUBJECTS);
   const [tasks, setTasks] = useLocalStorage<Task[]>("spd_tasks", []);
@@ -689,6 +690,7 @@ export default function App() {
                   {active === "achievements" && <AchievementsPanel achievements={achievements} />}
                   {active === "leaderboard" && (
                     <LeaderboardPanel
+                      username={leaderboardName}
                       weeklyHours={
                         logs.filter((l) => l.date >= startOfIsoWeek() && l.date <= today).reduce((s, l) => s + l.studyMinutes, 0) / 60
                       }
@@ -707,6 +709,7 @@ export default function App() {
                       breakLen={breakLen} setBreakLen={setBreakLen}
                       notifOn={notifOn} setNotifOn={setNotifOn}
                       onExport={exportData} onImport={importData} onReset={resetAll}
+                      username={username} onLogout={onLogout}
                     />
                   )}
                 </motion.div>
@@ -2016,11 +2019,9 @@ interface LeaderboardEntry {
   hours: number;
 }
 
-const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) => {
+const LeaderboardPanel: React.FC<{ username: string; weeklyHours: number }> = ({ username, weeklyHours }) => {
   const { accent } = useContext(Ctx);
   const a = ACCENTS[accent];
-  const [displayName, setDisplayName] = useLocalStorage("spd_leaderboard_name", "");
-  const [nameInput, setNameInput] = useState(displayName);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [rank, setRank] = useState<number | null>(null);
   const [total, setTotal] = useState(0);
@@ -2033,7 +2034,7 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
     setLoading(true);
     setError(null);
     try {
-      const url = displayName ? `/api/leaderboard?name=${encodeURIComponent(displayName)}` : "/api/leaderboard";
+      const url = username ? `/api/leaderboard?name=${encodeURIComponent(username)}` : "/api/leaderboard";
       const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to load leaderboard");
       const data = await res.json();
@@ -2046,24 +2047,21 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
     } finally {
       setLoading(false);
     }
-  }, [displayName]);
+  }, [username]);
 
   useEffect(() => { fetchLeaderboard(); }, [fetchLeaderboard]);
 
   const submitScore = async () => {
-    const trimmed = nameInput.trim();
-    if (!trimmed) { setError("Enter a display name first."); return; }
     setSubmitting(true);
     setError(null);
     try {
       const res = await fetch("/api/leaderboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed, hours: +weeklyHours.toFixed(2) }),
+        body: JSON.stringify({ name: username, hours: +weeklyHours.toFixed(2) }),
       });
       if (!res.ok) throw new Error("Failed to submit");
       const data = await res.json();
-      setDisplayName(trimmed);
       setEntries(data.entries || []);
       setRank(data.rank ?? null);
       setTotal(data.total || 0);
@@ -2082,26 +2080,19 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
   return (
     <div className="space-y-6">
       <GlassCard className="p-6">
-        <SectionTitle icon={Star} title="Weekly Leaderboard" subtitle={`Top 50, ranked by hours studied this week${weekLabel ? ` (${weekLabel})` : ""} — resets every Monday`} />
-        <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end mb-4">
-          <div>
-            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Your display name</label>
-            <input
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              maxLength={24}
-              placeholder="e.g. Nimal S."
-              className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-sm outline-none"
-            />
-          </div>
+        <div className="flex items-start justify-between gap-4 mb-5">
+          <SectionTitle icon={Star} title="Weekly Leaderboard" subtitle={`Top 50, ranked by hours studied this week${weekLabel ? ` (${weekLabel})` : ""} — resets every Monday`} />
           <button
             onClick={submitScore}
             disabled={submitting}
-            className={`px-5 py-2.5 rounded-xl ${a.solid} text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50`}
+            className={`shrink-0 px-5 py-2.5 rounded-xl ${a.solid} text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50`}
           >
-            {submitting ? "Submitting..." : `Submit ${weeklyHours.toFixed(1)}h this week`}
+            {submitting ? "Submitting..." : `Submit ${weeklyHours.toFixed(1)}h`}
           </button>
         </div>
+        <p className="text-xs text-slate-400 -mt-3 mb-4">
+          Submitting as <span className="font-medium text-slate-500 dark:text-slate-300">{username}</span> — this also happens automatically after every completed focus session.
+        </p>
         {error && <p className="text-xs text-rose-500 mb-3">{error}</p>}
 
         {rankedOutsideList && (
@@ -2124,7 +2115,7 @@ const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) =>
             {entries.map((entry, i) => (
               <div
                 key={entry.name + i}
-                className={`flex items-center gap-3 p-3 rounded-xl ${entry.name === displayName ? `${a.light} dark:bg-white/10` : "bg-slate-50 dark:bg-white/5"}`}
+                className={`flex items-center gap-3 p-3 rounded-xl ${entry.name === username ? `${a.light} dark:bg-white/10` : "bg-slate-50 dark:bg-white/5"}`}
               >
                 <span className={`h-8 w-8 flex items-center justify-center rounded-full text-xs font-bold ${i < 3 ? `bg-gradient-to-br ${a.from} ${a.to} text-white` : "bg-slate-200 dark:bg-white/10 text-slate-500"}`}>
                   {i + 1}
@@ -2150,12 +2141,29 @@ const SettingsPanel: React.FC<{
   breakLen: number; setBreakLen: (v: number) => void;
   notifOn: boolean; setNotifOn: (v: boolean) => void;
   onExport: () => void; onImport: (f: File) => void; onReset: () => void;
-}> = ({ dark, setDark, accent, setAccent, pomodoroLen, setPomodoroLen, breakLen, setBreakLen, notifOn, setNotifOn, onExport, onImport, onReset }) => {
+  username?: string; onLogout?: () => void;
+}> = ({ dark, setDark, accent, setAccent, pomodoroLen, setPomodoroLen, breakLen, setBreakLen, notifOn, setNotifOn, onExport, onImport, onReset, username, onLogout }) => {
   const a = ACCENTS[accent];
   const fileRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {username && (
+        <GlassCard className="p-6">
+          <SectionTitle icon={GraduationCap} title="Account" />
+          <div className="flex items-center justify-between py-3">
+            <div>
+              <p className="text-sm font-medium">Logged in as {username}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">This is also your leaderboard display name</p>
+            </div>
+            {onLogout && (
+              <button onClick={onLogout} className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-white/10 text-xs hover:bg-slate-50 dark:hover:bg-white/5 transition">
+                Log out
+              </button>
+            )}
+          </div>
+        </GlassCard>
+      )}
       <GlassCard className="p-6">
         <SectionTitle icon={SettingsIcon} title="Appearance" />
         <div className="flex items-center justify-between py-3">

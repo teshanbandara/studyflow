@@ -41,6 +41,15 @@ Follow the prompts (framework will auto-detect as Vite).
 
 `vercel.json` is already included so client-side routing (if you add any later) won't 404 on refresh.
 
+## Login & Landing Page
+
+Opening the app now shows a landing page with **Log in / Sign up** instead of going straight into the dashboard. Once logged in, your username is stored on the device and automatically used as your leaderboard display name — no more typing it in manually.
+
+- Backed by `api/auth.ts`, which also uses the same Vercel Blob store as the leaderboard (`auth/users.json` holds `{ username: { salt, hash, createdAt } }`).
+- Passwords are hashed with Node's built-in `scrypt` + a per-user salt — never stored in plain text.
+- This is intentionally lightweight: there's no server session/cookie, just "logged in" state stored on the device after a successful login. That's appropriate for a low-stakes study-tracking app, not something to reuse for anything sensitive.
+- Log out from **Settings → Account**.
+
 ## Online Leaderboard setup (Vercel Blob)
 
 The Leaderboard tab is backed by a small serverless API (`api/leaderboard.ts`) that stores scores in **Vercel Blob** (free-tier object storage) so everyone who opens the app sees the same shared rankings. It's **weekly**: each ISO week (Monday–Sunday) gets its own small JSON file, and it resets automatically once a new week starts — no manual reset needed.
@@ -85,9 +94,11 @@ studyflow/
 ├── tsconfig.json
 ├── vercel.json
 ├── api/
-│   └── leaderboard.ts     # Serverless function backing the online leaderboard
+│   ├── auth.ts             # Serverless function for login/signup
+│   └── leaderboard.ts      # Serverless function backing the online leaderboard
 └── src/
-    ├── main.tsx           # React entry point
+    ├── main.tsx           # React entry point + login gate
     ├── index.css          # Tailwind directives
+    ├── Landing.tsx         # Login/signup landing page
     └── StudentDashboard.tsx  # Main dashboard component
 ```
