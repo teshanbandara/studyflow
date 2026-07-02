@@ -1,19 +1,27 @@
-import { kv } from "@vercel/kv";
+import { put, head } from "@vercel/blob";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 // Storage design:
-// - A Redis sorted set per ISO week, e.g. "leaderboard:2026-W27", maps
-//   name -> hours (the score). Bucketing by week means the leaderboard
-//   naturally "resets" every Monday without needing a cron job - a new
-//   empty sorted set just starts being used once the week key changes.
-// - Names are trimmed and capped at 24 chars, and each name overwrites its
-//   own previous entry for the week (last submission wins) rather than
-//   creating duplicates.
+// - Vercel Blob (free tier) stores one small JSON file per ISO week, e.g.
+//   "leaderboard/2026-W27.json", containing an array of {name, hours}.
+//   Bucketing by week means the leaderboard naturally "resets" every Monday
+//   - a fresh, empty file just starts being used once the week key changes.
+// - Each POST reads the current file (if any), upserts the submitter's
+//   entry (last submission for that name wins), sorts by hours descending,
+//   and overwrites the file. This is fine for low/moderate traffic (a class
+//   or friend group); it is not built to handle many simultaneous writers
+//   racing each other, since there's no locking - the last write wins.
 // - The week key is computed from the server's clock (UTC), not sent by the
 //   client, so it can't be spoofed and always matches "the current week"
 //   consistently for everyone.
 
 const MAX_ENTRIES = 50;
+
+interface Entry {
+  name: string;
+  hours: number;
+  updatedAt: string;
+}
 
 function isoWeekKey(d: Date = new Date()): string {
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -24,22 +32,37 @@ function isoWeekKey(d: Date = new Date()): string {
   return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
+async function readEntries(pathname: string): Promise<Entry[]> {
+  try {
+    const meta = await head(pathname);
+    const res = await fetch(meta.url, { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    // No blob for this week yet
+    return [];
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store");
+
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(500).json({
+      error:
+        "Blob storage is not connected. In your Vercel project, go to Storage -> connect a Blob store, then redeploy.",
+    });
+  }
+
   const week = isoWeekKey();
-  const key = `leaderboard:${week}`;
+  const pathname = `leaderboard/${week}.json`;
 
   if (req.method === "GET") {
     try {
-      const raw = await kv.zrange<string[]>(key, 0, MAX_ENTRIES - 1, {
-        rev: true,
-        withScores: true,
-      });
-      const entries: { name: string; hours: number }[] = [];
-      for (let i = 0; i < raw.length; i += 2) {
-        entries.push({ name: String(raw[i]), hours: Number(raw[i + 1]) });
-      }
-      return res.status(200).json({ entries, week });
+      const entries = await readEntries(pathname);
+      entries.sort((a, b) => b.hours - a.hours);
+      return res.status(200).json({ entries: entries.slice(0, MAX_ENTRIES), week });
     } catch (err) {
       return res.status(500).json({ error: "Failed to load leaderboard" });
     }
@@ -56,10 +79,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "Invalid hours value" });
       }
 
-      await kv.zadd(key, { score: hours, member: name });
-      // Auto-expire the week's key ~2 weeks after it was last written to,
-      // so old weekly leaderboards don't accumulate in storage forever.
-      await kv.expire(key, 60 * 60 * 24 * 14);
+      const entries = await readEntries(pathname);
+      const idx = entries.findIndex((e) => e.name === name);
+      const entry: Entry = { name, hours, updatedAt: new Date().toISOString() };
+      if (idx === -1) entries.push(entry);
+      else entries[idx] = entry;
+      entries.sort((a, b) => b.hours - a.hours);
+
+      await put(pathname, JSON.stringify(entries.slice(0, MAX_ENTRIES)), {
+        access: "public",
+        contentType: "application/json",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+      });
+
       return res.status(200).json({ ok: true, week });
     } catch (err) {
       return res.status(500).json({ error: "Failed to submit score" });
