@@ -28,7 +28,13 @@ type UsersFile = Record<string, UserRecord>;
 async function readUsers(): Promise<UsersFile> {
   try {
     const meta = await head(USERS_PATH);
-    const res = await fetch(meta.url, { cache: "no-store" });
+    // Private Blob stores don't allow unauthenticated reads of the URL, so
+    // we pass the token explicitly here rather than a plain fetch().
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    const res = await fetch(meta.url, {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
     if (!res.ok) return {};
     const data = await res.json();
     return data && typeof data === "object" ? data : {};
