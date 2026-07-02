@@ -132,6 +132,27 @@ const startOfIsoWeek = () => {
   return d.toISOString().slice(0, 10);
 };
 
+// Silently submits the given hours to the leaderboard under the stored
+// display name (if any). Used both by the manual Submit button on the
+// Leaderboard tab and by the auto-submit-after-focus-session flow, so a
+// student's rank stays current without needing to visit that tab.
+// No-op (and fails silently) if no display name has been set yet, or if
+// the request fails - this should never interrupt the study flow itself.
+async function submitLeaderboardScore(name: string, hours: number) {
+  if (!name) return;
+  try {
+    await fetch("/api/leaderboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, hours: +hours.toFixed(2) }),
+    });
+  } catch {
+    // Silent - this runs in the background after focus sessions and
+    // shouldn't surface errors or interrupt the user's flow. They'll see
+    // an error if they visit the Leaderboard tab and it fails to load.
+  }
+}
+
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 const QUOTES = [
@@ -339,6 +360,7 @@ export default function App() {
   const [pomodoroLen, setPomodoroLen] = useLocalStorage("spd_pomo_len", 25);
   const [breakLen, setBreakLen] = useLocalStorage("spd_break_len", 5);
   const [notifOn, setNotifOn] = useLocalStorage("spd_notif", true);
+  const [leaderboardName] = useLocalStorage("spd_leaderboard_name", "");
 
   const [subjects, setSubjects] = useLocalStorage<Subject[]>("spd_subjects", DEFAULT_SUBJECTS);
   const [tasks, setTasks] = useLocalStorage<Task[]>("spd_tasks", []);
@@ -647,7 +669,14 @@ export default function App() {
                     <FocusPanel
                       pomodoroLen={pomodoroLen} breakLen={breakLen}
                       setPomodoroLen={setPomodoroLen} setBreakLen={setBreakLen}
-                      onSessionComplete={(mins) => { logStudyMinutes(mins, true); pushToast("Focus session complete — take a break!", Bell); }}
+                      onSessionComplete={(mins) => {
+                        logStudyMinutes(mins, true);
+                        pushToast("Focus session complete — take a break!", Bell);
+                        if (leaderboardName) {
+                          const weeklyHoursSoFar = logs.filter((l) => l.date >= startOfIsoWeek() && l.date <= today).reduce((s, l) => s + l.studyMinutes, 0) / 60;
+                          submitLeaderboardScore(leaderboardName, weeklyHoursSoFar + mins / 60);
+                        }
+                      }}
                       notifOn={notifOn}
                     />
                   )}
