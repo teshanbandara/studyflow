@@ -111,6 +111,27 @@ function useLocalStorage<T>(key: string, initial: T): [T, React.Dispatch<React.S
 /* ============================== Helpers ============================== */
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+
+// Returns an ISO-8601 week identifier like "2026-W27" (Monday-start weeks).
+// Used to bucket the leaderboard so it automatically resets every week.
+const isoWeekKey = (d: Date = new Date()) => {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7; // Mon=1..Sun=7
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+};
+
+// Start of the current ISO week (Monday), as a "YYYY-MM-DD" string, for
+// filtering which daily logs count toward this week's leaderboard total.
+const startOfIsoWeek = () => {
+  const d = new Date();
+  const day = d.getDay() || 7; // Mon=1..Sun=7
+  d.setDate(d.getDate() - day + 1);
+  return d.toISOString().slice(0, 10);
+};
+
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 const QUOTES = [
@@ -305,6 +326,7 @@ const NAV = [
   { id: "goals", label: "Goals", icon: Target },
   { id: "exams", label: "Exams", icon: GraduationCap },
   { id: "achievements", label: "Achievements", icon: Trophy },
+  { id: "leaderboard", label: "Leaderboard", icon: Star },
   { id: "review", label: "Daily Review", icon: ClipboardList },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
@@ -636,6 +658,13 @@ export default function App() {
                   {active === "goals" && <GoalsPanel goals={goals} setGoals={setGoals} />}
                   {active === "exams" && <ExamsPanel exams={exams} setExams={setExams} subjects={subjects} />}
                   {active === "achievements" && <AchievementsPanel achievements={achievements} />}
+                  {active === "leaderboard" && (
+                    <LeaderboardPanel
+                      weeklyHours={
+                        logs.filter((l) => l.date >= startOfIsoWeek() && l.date <= today).reduce((s, l) => s + l.studyMinutes, 0) / 60
+                      }
+                    />
+                  )}
                   {active === "review" && (
                     <ReviewPanel
                       tasks={todayTasks} completedToday={completedToday} todayLog={todayLog}
@@ -1951,7 +1980,123 @@ const ReviewPanel: React.FC<{
 
 /* ============================== Settings ============================== */
 
-const SettingsPanel: React.FC<{
+/* ============================== Leaderboard ============================== */
+
+interface LeaderboardEntry {
+  name: string;
+  hours: number;
+  updatedAt: string;
+}
+
+const LeaderboardPanel: React.FC<{ weeklyHours: number }> = ({ weeklyHours }) => {
+  const { accent } = useContext(Ctx);
+  const a = ACCENTS[accent];
+  const [displayName, setDisplayName] = useLocalStorage("spd_leaderboard_name", "");
+  const [nameInput, setNameInput] = useState(displayName);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [weekLabel, setWeekLabel] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchLeaderboard = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/leaderboard");
+      if (!res.ok) throw new Error("Failed to load leaderboard");
+      const data = await res.json();
+      setEntries(data.entries || []);
+      setWeekLabel(data.week || "");
+    } catch (err) {
+      setError("Couldn't reach the leaderboard. Check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchLeaderboard(); }, [fetchLeaderboard]);
+
+  const submitScore = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) { setError("Enter a display name first."); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/leaderboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed, hours: +weeklyHours.toFixed(2) }),
+      });
+      if (!res.ok) throw new Error("Failed to submit");
+      setDisplayName(trimmed);
+      await fetchLeaderboard();
+    } catch (err) {
+      setError("Couldn't submit your score. Try again in a moment.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const myRank = entries.findIndex((e) => e.name === displayName) + 1;
+
+  return (
+    <div className="space-y-6">
+      <GlassCard className="p-6">
+        <SectionTitle icon={Star} title="Weekly Leaderboard" subtitle={`Ranked by hours studied this week${weekLabel ? ` (${weekLabel})` : ""} — resets every Monday`} />
+        <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end mb-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Your display name</label>
+            <input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              maxLength={24}
+              placeholder="e.g. Nimal S."
+              className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-sm outline-none"
+            />
+          </div>
+          <button
+            onClick={submitScore}
+            disabled={submitting}
+            className={`px-5 py-2.5 rounded-xl ${a.solid} text-white text-sm font-medium hover:opacity-90 transition disabled:opacity-50`}
+          >
+            {submitting ? "Submitting..." : `Submit ${weeklyHours.toFixed(1)}h this week`}
+          </button>
+        </div>
+        {error && <p className="text-xs text-rose-500 mb-3">{error}</p>}
+        {myRank > 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">You're currently ranked #{myRank} as "{displayName}" for this week.</p>
+        )}
+
+        {loading ? (
+          <p className="text-sm text-slate-400 py-8 text-center">Loading leaderboard...</p>
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-slate-400 py-8 text-center">No entries yet this week — be the first to submit your hours!</p>
+        ) : (
+          <div className="space-y-2">
+            {entries.map((entry, i) => (
+              <div
+                key={entry.name + i}
+                className={`flex items-center gap-3 p-3 rounded-xl ${entry.name === displayName ? `${a.light} dark:bg-white/10` : "bg-slate-50 dark:bg-white/5"}`}
+              >
+                <span className={`h-8 w-8 flex items-center justify-center rounded-full text-xs font-bold ${i < 3 ? `bg-gradient-to-br ${a.from} ${a.to} text-white` : "bg-slate-200 dark:bg-white/10 text-slate-500"}`}>
+                  {i + 1}
+                </span>
+                <span className="flex-1 text-sm font-medium truncate">{entry.name}</span>
+                <span className="text-sm font-semibold tabular-nums">{entry.hours.toFixed(1)}h</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button onClick={fetchLeaderboard} className="mt-4 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition">
+          Refresh
+        </button>
+      </GlassCard>
+    </div>
+  );
+};
+
+
   dark: boolean; setDark: (v: boolean | ((p: boolean) => boolean)) => void;
   accent: string; setAccent: (v: string) => void;
   pomodoroLen: number; setPomodoroLen: (v: number) => void;
